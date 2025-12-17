@@ -4,12 +4,15 @@ version = "0.1"
 description = "Inference/Network/Model code for SHARP view synthesis model."
 readme = "README.md"
 dependencies = [
+  "boto3",
   "click",
   "gsplat",
   "imageio[ffmpeg]",
   "matplotlib",
   "pillow-heif",
   "plyfile",
+  "requests",
+  "runpod",
   "scipy",
   "timm",
   "torch",
