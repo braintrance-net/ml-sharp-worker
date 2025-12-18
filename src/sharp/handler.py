@@ -6,6 +6,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 import boto3
 import requests
@@ -26,6 +27,7 @@ OUTPUT_BUCKET = os.environ.get("OUTPUT_BUCKET", "braintrance-mlsharp-bucket")
 OUTPUT_PREFIX = os.environ.get("OUTPUT_PREFIX", "mlsharp/")
 CLOUDFRONT_URL = os.environ.get("CLOUDFRONT_URL", "https://dnht1hs3nve3d.cloudfront.net")
 DEFAULT_MODEL_URL = "https://ml-site.cdn-apple.com/models/sharp/sharp_2572gikvuh.pt"
+LOCAL_MODEL_PATH = "/app/.cache/torch/hub/checkpoints/sharp_2572gikvuh.pt"
 
 # Global model (loaded once)
 MODEL = None
@@ -47,7 +49,13 @@ def load_model():
         DEVICE = torch.device("cpu")
     LOGGER.info(f"Using device: {DEVICE}")
 
-    state_dict = torch.hub.load_state_dict_from_url(DEFAULT_MODEL_URL, progress=True)
+    # Load from local file if exists, otherwise download
+    if os.path.exists(LOCAL_MODEL_PATH):
+        LOGGER.info(f"Loading model from local cache: {LOCAL_MODEL_PATH}")
+        state_dict = torch.load(LOCAL_MODEL_PATH, map_location=DEVICE, weights_only=True)
+    else:
+        LOGGER.info(f"Downloading model from {DEFAULT_MODEL_URL}")
+        state_dict = torch.hub.load_state_dict_from_url(DEFAULT_MODEL_URL, progress=True)
     MODEL = create_predictor(PredictorParams())
     MODEL.load_state_dict(state_dict)
     MODEL.eval()
@@ -58,10 +66,18 @@ def load_model():
 
 
 def download_image(url: str, dest_path: Path) -> Path:
-    """Download image from URL."""
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    dest_path.write_bytes(response.content)
+    """Download image from URL (supports HTTP/HTTPS and S3 URLs)."""
+    if url.startswith("s3://"):
+        # Parse s3://bucket/key
+        parts = url[5:].split("/", 1)
+        bucket, key = parts[0], parts[1]
+        LOGGER.info(f"Downloading from S3: bucket={bucket}, key={key}")
+        s3_client = boto3.client("s3")
+        s3_client.download_file(bucket, key, str(dest_path))
+    else:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        dest_path.write_bytes(response.content)
     return dest_path
 
 
@@ -102,7 +118,8 @@ def handler(job):
 
             # Get input image
             if image_url:
-                ext = Path(image_url).suffix or ".jpg"
+                parsed = urlparse(image_url)
+                ext = os.path.splitext(parsed.path)[1] or ".jpg"
                 image_path = tmpdir / f"input{ext}"
                 LOGGER.info(f"Downloading image from {image_url}")
                 download_image(image_url, image_path)

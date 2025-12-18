@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libheif-dev \
     ffmpeg \
     git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.11 as default
@@ -30,11 +31,10 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir boto3 runpod requests
 
-# Create cache directory for model downloads
-RUN mkdir -p /app/.cache/torch/hub/checkpoints
-
-# Volume for persisting model cache
-VOLUME ["/app/.cache/torch"]
+# Create cache directory and download model checkpoint
+RUN mkdir -p /app/.cache/torch/hub/checkpoints \
+    && curl -L -o /app/.cache/torch/hub/checkpoints/sharp_2572gikvuh.pt \
+    https://ml-site.cdn-apple.com/models/sharp/sharp_2572gikvuh.pt
 
 # RunPod serverless handler
 CMD ["python", "-m", "sharp.handler"]
